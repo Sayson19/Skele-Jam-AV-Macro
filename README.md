@@ -11,25 +11,12 @@ ArbuzAV is an automation tool for rhythm games (Guitar Hero style) with 5 lanes 
 - 💾 Configuration auto-save
 - 🪟 Always-on-top windows
 
-## Installation
+## To make it EXE
 
-### Prerequisites
-- Python 3.8 or higher
-- Windows OS (required for keyboard library)
-
-### Setup
-
-1. Install Python from https://www.python.org/downloads/
-
-2. Install required packages:
-```bash
-pip install -r requirements.txt
-```
-
-3. Run the program:
-```bash
-python ArbuzAV.py
-```
+1. Download All Files
+2. Place them in one shared folder
+3. Run build.bat
+4. After this you will see the .exe in 'dist' folder
 
 ## Usage Guide
 
@@ -110,29 +97,6 @@ You can manually edit this file if needed:
 - Check antivirus is not blocking keyboard/mouse control
 - Ensure all dependencies are installed correctly
 
-## Creating EXE File
-
-To create a standalone executable for sharing:
-
-1. Install PyInstaller:
-```bash
-pip install pyinstaller
-```
-
-2. Create the executable:
-```bash
-pyinstaller --onefile --windowed --icon=icon.ico ArbuzAV.py
-```
-
-3. Find the EXE in the `dist` folder
-
-## Technical Details
-
-- **Detection Method:** HSV color space filtering
-- **Circle Detection:** OpenCV contour detection
-- **Click Method:** PyAutoGUI coordinate clicking
-- **Hotkeys:** Global keyboard hooks
-- **GUI Framework:** Tkinter
 
 ## Notes
 
@@ -147,5 +111,4 @@ This project is for educational purposes only.
 
 ---
 
-Created by ArbuzAV Team
-Version 1.0
+Created by Sayson
