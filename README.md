@@ -11,6 +11,8 @@ ArbuzAV is an automation tool for rhythm games (Guitar Hero style) with 5 lanes 
 - 💾 Configuration auto-save
 - 🪟 Always-on-top windows
 
+### ALL FILES MUST BE IN THE ONE FOLDER
+
 ### Prerequisites
 - Python 3.8 or higher
 - Windows OS (required for keyboard library)
@@ -29,6 +31,7 @@ pip install -r requirements.txt
 python ArbuzAV.py
 ```
 
+PS: Also, to download all requirements just run 'run.bat'.
 
 ## To make it EXE
 
