@@ -9,6 +9,7 @@ import time
 import json
 import os
 import ctypes
+import webbrowser
 
 # WIN32 API - SIMULTANEOUS KEY PRESSES
 user32 = ctypes.windll.user32
@@ -81,13 +82,61 @@ def press_keys_simultaneous(vk_codes, hold_ms: int = 30):
 pyautogui.PAUSE = 0
 pyautogui.FAILSAFE = False
 
+def key_down(letter: str):
+    try:
+        pyautogui.keyDown(letter)
+    except Exception:
+        pass
+
+def key_up(letter: str):
+    try:
+        pyautogui.keyUp(letter)
+    except Exception:
+        pass
+
+def press_key_down_vk(vk: int):
+    MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
+    extra = ctypes.c_ulong(0)
+    scan = MapVirtualKey(vk, 0)
+    ii_ = Input_I()
+    ii_.ki = KeyBdInput(0, scan, KEYEVENTF_SCANCODE, 0, ctypes.pointer(extra))
+    inp = Input(ctypes.c_ulong(INPUT_KEYBOARD), ii_)
+    SendInput(1, ctypes.pointer(inp), ctypes.sizeof(Input))
+
+def press_key_up_vk(vk: int):
+    MapVirtualKey = ctypes.windll.user32.MapVirtualKeyW
+    extra = ctypes.c_ulong(0)
+    scan = MapVirtualKey(vk, 0)
+    ii_ = Input_I()
+    ii_.ki = KeyBdInput(0, scan, KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP, 0, ctypes.pointer(extra))
+    inp = Input(ctypes.c_ulong(INPUT_KEYBOARD), ii_)
+    SendInput(1, ctypes.pointer(inp), ctypes.sizeof(Input))
+
 class ArbuzAV:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("ArbuzAV Pro")
-        self.root.geometry("680x950")
-        self.root.resizable(False, False)
+        self.root.geometry("700x980")
+        # Allow user resizing; lower the floor so the window can be made smaller
+        self.root.resizable(True, True)
+        # Allow even smaller window; scrollbar keeps content reachable
+        self.root.minsize(360, 520)
         self.root.attributes('-topmost', True)
+
+        # Theme
+        self.dark_mode = tk.BooleanVar(value=True)
+        self.palette_dark = {
+            'bg': '#121212',
+            'panel': '#1E1E1E',
+            'fg': '#E8E8E8',
+            'muted': '#9E9E9E'
+        }
+        self.palette_light = {
+            'bg': '#F5F5F5',
+            'panel': '#FFFFFF',
+            'fg': '#111111',
+            'muted': '#555555'
+        }
         
         self.config_file = "arbuzav_config.json"
         self.button_coords = {'A': None, 'S': None, 'D': None, 'F': None, 'G': None}
@@ -104,11 +153,13 @@ class ArbuzAV:
         self.threshold_value = 55  # Lower = detect more circles
         self.hit_tolerance = 110  # Window around hit line (smaller = меньше ранних)
         self.cooldown_time = 250  # ms between same key presses
-        self.lane_tolerance = 150  # Max X distance to lane (чуть шире, чтобы F попадала)
+        self.lane_tolerance = 150  # Max X distance to lane
+        self.debug_mode = True  # Show all detected circles
         
         self.start_hotkey_monitor()
         self.load_config()
         self.create_gui()
+        self.apply_theme()
     
     def start_hotkey_monitor(self):
         def monitor():
@@ -131,14 +182,52 @@ class ArbuzAV:
         threading.Thread(target=monitor, daemon=True).start()
         
     def create_gui(self):
-        tk.Label(self.root, text="ArbuzAV Pro", font=("Arial", 24, "bold"), 
-                fg="#2196F3").pack(pady=12)
-        tk.Label(self.root, text="⚡ Simultaneous Multi-Key Press Supported!", 
-                font=("Arial", 10), fg="green").pack()
+        # Scrollable wrapper so controls remain reachable when the window is small
+        outer = tk.Frame(self.root)
+        outer.pack(fill='both', expand=True)
+
+        canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+        self.canvas = canvas
+        vscroll = tk.Scrollbar(outer, orient='vertical', command=canvas.yview)
+        hscroll = tk.Scrollbar(outer, orient='horizontal', command=canvas.xview)
+        canvas.configure(yscrollcommand=vscroll.set, xscrollcommand=hscroll.set)
+        vscroll.pack(side='right', fill='y')
+        hscroll.pack(side='bottom', fill='x')
+        canvas.pack(side='left', fill='both', expand=True)
+
+        self.content_frame = tk.Frame(canvas)
+        canvas_window = canvas.create_window((0, 0), window=self.content_frame, anchor='nw', tags=("content",))
+
+        def sync_scrollregion(event=None):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+            # Keep content at least its requested width so horizontal scroll can appear when needed
+            req_w = self.content_frame.winfo_reqwidth()
+            canvas.itemconfig(canvas_window, width=max(req_w, canvas.winfo_width()))
+
+        self.content_frame.bind('<Configure>', sync_scrollregion)
+        canvas.bind('<Configure>', sync_scrollregion)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all('<MouseWheel>', _on_mousewheel)
+        # Shift+wheel for horizontal scroll
+        def _on_shift_mousewheel(event):
+            if event.state & 0x0001:  # Shift pressed
+                canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all('<Shift-MouseWheel>', _on_shift_mousewheel)
+
+        header = tk.Frame(self.content_frame)
+        header.pack(fill='x', pady=(10, 4))
+        tk.Label(header, text="ArbuzAV Pro", font=("Arial", 24, "bold"), 
+            fg="#2196F3").pack(side='left', padx=12)
+        tk.Label(header, text="⚡ Simultaneous Multi-Key Press Supported!", 
+            font=("Arial", 10), fg="green").pack(side='left', padx=8)
+        tk.Checkbutton(header, text="Dark mode", variable=self.dark_mode, command=self.apply_theme).pack(side='right', padx=12)
         
         # Settings
-        settings_frame = tk.LabelFrame(self.root, text="⚙️ Detection Settings", 
-                                      font=("Arial", 11, "bold"), padx=15, pady=12)
+        settings_frame = tk.LabelFrame(self.content_frame, text="⚙️ Detection Settings", 
+                          font=("Arial", 11, "bold"), padx=15, pady=12)
         settings_frame.pack(pady=10, padx=20, fill="x")
         
         # Threshold
@@ -209,7 +298,7 @@ class ArbuzAV:
                 font=("Arial", 8), bg="#E3F2FD").pack(anchor='w', padx=10)
         
         # Start/Stop
-        control_frame = tk.Frame(self.root)
+        control_frame = tk.Frame(self.content_frame)
         control_frame.pack(pady=12)
         
         self.start_btn = tk.Button(control_frame, text="▶ START (F1)", command=self.start_bot, 
@@ -223,7 +312,7 @@ class ArbuzAV:
         self.stop_btn.grid(row=0, column=1, padx=10)
         
         # Button coords
-        coords_frame = tk.LabelFrame(self.root, text="Button Coordinates", 
+        coords_frame = tk.LabelFrame(self.content_frame, text="Button Coordinates", 
                                     font=("Arial", 10, "bold"), padx=10, pady=8)
         coords_frame.pack(pady=8, padx=20, fill="both")
         
@@ -246,7 +335,7 @@ class ArbuzAV:
                  font=("Arial", 9, "bold"), width=28).pack(pady=8)
         
         # Areas
-        areas_frame = tk.Frame(self.root)
+        areas_frame = tk.Frame(self.content_frame)
         areas_frame.pack(pady=8, padx=20, fill="x")
         
         hit_frame = tk.LabelFrame(areas_frame, text="Hit Line", font=("Arial", 9, "bold"), padx=8, pady=6)
@@ -264,46 +353,87 @@ class ArbuzAV:
                  bg="#9C27B0", fg="white", font=("Arial", 8, "bold"), width=15).pack()
         
         # Status
-        status_frame = tk.Frame(self.root, bg="#F5F5F5", relief='sunken', bd=2)
+        status_frame = tk.Frame(self.content_frame, bg="#F5F5F5", relief='sunken', bd=2)
         status_frame.pack(pady=10, padx=20, fill="x")
-        
-        self.status_label = tk.Label(status_frame, text="⏸ Idle", 
-                                    font=("Arial", 12, "bold"), fg="blue", bg="#F5F5F5")
+
+        self.status_label = tk.Label(status_frame, text="⏸ Idle",
+                         font=("Arial", 12, "bold"), fg="blue", bg="#F5F5F5")
         self.status_label.pack(pady=5)
-        
-        self.stats_label = tk.Label(status_frame, text="Hits: 0 | Multi: 0", 
-                                   font=("Arial", 9), fg="gray", bg="#F5F5F5")
+
+        self.stats_label = tk.Label(status_frame, text="Hits: 0 | Multi: 0",
+                        font=("Arial", 9), fg="gray", bg="#F5F5F5")
         self.stats_label.pack(pady=3)
+
+        # Subscribe
+        subscribe_frame = tk.Frame(self.content_frame)
+        subscribe_frame.pack(pady=(4, 12))
+        tk.Button(subscribe_frame, text="Subscribe to the author",
+              command=lambda: self.open_link("https://www.youtube.com/@sayson6129"),
+              bg="#E53935", fg="white", font=("Arial", 10, "bold"), width=24).pack()
+
+    def apply_theme(self):
+        palette = self.palette_dark if self.dark_mode.get() else self.palette_light
+
+        def recolor(widget, is_panel=False):
+            try:
+                if isinstance(widget, (tk.Frame, tk.LabelFrame)):
+                    widget.configure(bg=palette['panel' if is_panel else 'bg'])
+                elif isinstance(widget, tk.Canvas):
+                    widget.configure(bg=palette['bg'], highlightbackground=palette['bg'])
+                elif isinstance(widget, tk.Label):
+                    widget.configure(bg=widget.master.cget('bg'), fg=palette['fg'])
+                elif isinstance(widget, tk.Scale):
+                    widget.configure(bg=widget.master.cget('bg'), fg=palette['fg'], troughcolor=palette['bg'], highlightthickness=0)
+                elif isinstance(widget, tk.Entry):
+                    widget.configure(bg=palette['panel'], fg=palette['fg'], insertbackground=palette['fg'])
+            except Exception:
+                pass
+            for child in widget.winfo_children():
+                recolor(child, isinstance(child, (tk.Frame, tk.LabelFrame)))
+
+        self.root.configure(bg=palette['bg'])
+        recolor(self.root, False)
+
+    def open_link(self, url: str):
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
         
     def start_calibration(self):
         if self.calibration_window:
             return
         self.calibration_step = 0
         self.calibration_window = tk.Toplevel(self.root)
-        self.calibration_window.title("Calibration")
-        self.calibration_window.geometry("500x300")
+        # Fullscreen transparent overlay; do not set overrideredirect to keep fullscreen working
+        self.calibration_window.attributes('-fullscreen', True)
         self.calibration_window.attributes('-topmost', True)
+        self.calibration_window.attributes('-alpha', 0.15)
+        self.calibration_window.configure(bg='black')
         self.calibration_window.protocol("WM_DELETE_WINDOW", self.cancel_calibration)
-        
-        tk.Label(self.calibration_window, text="Move mouse → CONFIRM", 
-                font=("Arial", 13, "bold"), fg="red").pack(pady=15)
-        self.calibration_info_label = tk.Label(self.calibration_window, text="", 
-                                              font=("Arial", 15, "bold"))
-        self.calibration_info_label.pack(pady=12)
-        self.calibration_coord_label = tk.Label(self.calibration_window, text="", 
-                                               font=("Arial", 12), fg="blue")
-        self.calibration_coord_label.pack(pady=12)
-        
-        button_frame = tk.Frame(self.calibration_window)
-        button_frame.pack(pady=20)
-        tk.Button(button_frame, text="✓ CONFIRM", command=self.confirm_calibration, 
-                 bg="#4CAF50", fg="white", width=15, height=2,
-                 font=("Arial", 11, "bold")).grid(row=0, column=0, padx=5)
-        tk.Button(button_frame, text="Skip", command=self.skip_calibration_step, 
-                 bg="#FF9800", fg="white", width=10, height=2).grid(row=0, column=1, padx=5)
-        tk.Button(button_frame, text="Cancel", command=self.cancel_calibration, 
-                 bg="#f44336", fg="white", width=10, height=2).grid(row=0, column=2, padx=5)
-        
+
+        # Instruction panel (dock top)
+        top_panel = tk.Frame(self.calibration_window, bg='#000000', highlightthickness=0)
+        top_panel.pack(side='top', fill='x')
+        tk.Label(top_panel, text="Calibration: click the in-game button, then ENTER = save, SPACE = skip, ESC = exit", 
+             font=("Arial", 13, "bold"), fg="white", bg='#000000').pack(pady=8)
+
+        info_panel = tk.Frame(self.calibration_window, bg='#000000', highlightthickness=0)
+        info_panel.pack(side='top', pady=6)
+        self.calibration_info_label = tk.Label(info_panel, text="", font=("Arial", 18, "bold"), fg="white", bg='#000000')
+        self.calibration_info_label.pack()
+        self.calibration_coord_label = tk.Label(info_panel, text="", font=("Arial", 14), fg="#4CAF50", bg='#000000')
+        self.calibration_coord_label.pack()
+
+        hint_panel = tk.Frame(self.calibration_window, bg='#000000', highlightthickness=0)
+        hint_panel.pack(side='bottom', pady=10)
+        tk.Label(hint_panel, text="Hint: click the game button first, then press ENTER / SPACE / ESC", 
+             font=("Arial", 11), fg="white", bg='#000000').pack()
+
+        # Hotkey monitor for calibration (global polling)
+        self.calibration_hotkeys_active = True
+        threading.Thread(target=self.calibration_hotkey_monitor, daemon=True).start()
+
         self.next_calibration_step()
         
     def next_calibration_step(self):
@@ -315,6 +445,23 @@ class ArbuzAV:
         self.calibration_listening = True
         self.track_mouse()
         self.calibration_window.bind('<Return>', lambda e: self.confirm_calibration())
+
+    def calibration_hotkey_monitor(self):
+        enter_was = space_was = esc_was = False
+        while getattr(self, 'calibration_hotkeys_active', False):
+            enter = user32.GetAsyncKeyState(0x0D) & 0x8000 != 0
+            space = user32.GetAsyncKeyState(0x20) & 0x8000 != 0
+            esc = user32.GetAsyncKeyState(0x1B) & 0x8000 != 0
+
+            if enter and not enter_was and self.calibration_listening:
+                self.root.after(0, self.confirm_calibration)
+            if space and not space_was and self.calibration_listening:
+                self.root.after(0, self.skip_calibration_step)
+            if esc and not esc_was:
+                self.root.after(0, self.cancel_calibration)
+
+            enter_was, space_was, esc_was = enter, space, esc
+            time.sleep(0.05)
         
     def track_mouse(self):
         if self.calibration_listening and self.calibration_window:
@@ -354,14 +501,16 @@ class ArbuzAV:
                 
     def cancel_calibration(self):
         self.calibration_listening = False
+        self.calibration_hotkeys_active = False
         if self.calibration_window:
             self.calibration_window.destroy()
             self.calibration_window = None
             
     def finish_calibration(self):
         self.save_config()
-        messagebox.showinfo("✓", "Saved!")
+        # Close overlay first so messagebox is clickable
         self.cancel_calibration()
+        messagebox.showinfo("✓", "Saved!")
         
     def set_hit_line_area(self):
         messagebox.showinfo("Hit Line", "Drag line. ENTER=OK")
